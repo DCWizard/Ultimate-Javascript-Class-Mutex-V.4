@@ -8,34 +8,40 @@ class Mutex {
     var ReleaseStack            = [_Lock];
     
     var _DEBUGTRACE             = true;
-    NameThisObject              = function (ThisObject, ThisName){
+    var NameThisObject          = function (ThisObject, ThisName){
       Object.defineProperty(ThisObject, 'name', {
         value: ThisName,
         configurable: true,
       });
+    }
+    var CloneObject             = function (ThatObject){
+    let ThisObject              = {};
+
+      Object.assign(ThisObject, ThatObject);
+      return ThisObject;
     }
     NameThisObject (_Lock, "Init_NextLock");
     _Lock["State"]              = "fulfilled"; 
 
     var _acquire                = function (ThisName) {
       var ThisNextRelease;
-      const ThisLock = _Lock   = new Promise(resolve => {
+      const ThisLock = _Lock    = new Promise(resolve => {
           ThisNextRelease = resolve;
       });
       NameThisObject (ThisLock, ThisName + "_NextLock");
-      ThisLock["State"]        = "pending";
+      ThisLock["State"]         = "pending";
       LockStack.push              (ThisLock);
       function GetThatFulfilledState (ThatLock){
         ThatLock.then(()=>{
-          ThatLock["State"]    = "fulfilled";
+          ThatLock["State"]     = "fulfilled";
         });
       }
       GetThatFulfilledState       (ThisLock);
       NameThisObject (ThisNextRelease, ThisName + "_NextRelease");
       ThisNextRelease["State"]  = "pending";
       // IN ORDER TO HAVE IT LAST ON THE STACK 
-      // YOU MUST PUSH IT AT DISTRIBUTION IN THE _Lock.then(() => 
-      // OR PLACE IT IN A SEPARATED STACK SINCE IT'S THE MOST IMPORTANT ONE
+      // OR YOU MUST PUSH IT AT DISTRIBUTION IN THE _Lock.then(() => 
+      // OR PUSH IT IN A SEPARATED STACK SINCE IT'S THE MOST IMPORTANT ONE
       LockStack.push              (ThisNextRelease);
       ReleaseStack.push           (ThisNextRelease);
       return ThisNextRelease;
@@ -45,10 +51,15 @@ class Mutex {
     this.IsLocked               = function (){
       // UNFORTUNATELLY WE DON'T HAVE ACCESS TO Promise::<state> NOT EVEN IN READONLY PROVIDED BY AND THANKS TO MOLTON BORONS. 
       // BUT THE DEBUGGER CAN: SIMPLIFYING BY MAKING IT WORST 
-      // SO, WE HAVE TO DO THIS STUPID CONTRACTION INSTEAD;
-      // LOOK ABOVE IN THE _acquire FUNCTION  FOR GetThatFulfilledState HAS IT RECORDS THE FULFULL STATE 
-      // UNFORTUNATELLY IT RECEIVED THE EVENT TOO LATE (NOT ACCURATE ENOUGH)
-      // IF YOU PREFER TO GET THE STATUS AFTER ALL HAVE EXECUTED INSTEAD 
+      // SO, WE HAVE TO DO THIS STUPID CONVOLUTED CONTRAPTION INSTEAD;
+      // LOOK ABOVE IN THE _acquire FUNCTION  FOR GetThatFulfilledState HAS IT RECORDS THE FULFILLED STATE 
+
+      // UNFORTUNATELLY WE DON'T HAVE ACCESS TO Promise::<state> NOT EVEN IN READONLY PROVIDED BY AND THANKS TO MOLTON BORONS. 
+      // BUT THE DEBUGGER CAN: SIMPLIFYING BY MAKING IT WORST 
+      // SO, WE HAVE TO DO THIS STUPID CONVOLUTED CONTRAPTION INSTEAD;
+      // LOOK ABOVE IN THE _acquire FUNCTION  FOR GetThatFulfilledState HAS IT RECORDS THE FULFILLED STATE 
+      // UNFORTUNATELLY IT RECEIVED THE EVENT TOO LATE (NOT ACCURATE ENOUGH FOR MY TASTE)
+      // IF YOU PREFER TO GET THE STATUS AFTER ALL HAVE FULFILLED INSTEAD IMPLEMENTED IN IsStillLocked
       // THAT'S YOUR GUY
       // if(_Lock["State"]        == "pending"){
       //   return true;
@@ -62,7 +73,8 @@ class Mutex {
       // SO, I'M GONNA DO IT RIGHT...
 
       // ONE WAY WE CAN DO IS CHECK THE LAST STATUS ON THE (OUR) STACK... 
-      // NOT MY CHOICE I WOULD HAVE PREFERRED THAT THEY WOULD HAVE DONE A GOOD JOB.
+      // NOT MY CHOICE I WOULD HAVE PREFERRED THAT THEY WOULD HAVE DONE A GOOD JOB IN A FIRST PLACE.
+      // WHAT IS IMPORTANT HERE: IS THE RELEASE STACK ONCE ALL RELEASED THE MUTEX IS CONSIDERED FREED.
       let ThisLastLock          = ReleaseStack[ReleaseStack.length - 1];
       if(ThisLastLock["State"] == "pending"){
         return true;
@@ -96,7 +108,8 @@ class Mutex {
       {
         ThisNextThen["State"]   = "fulfilled";
         // WE CAN PUSH IT NOW TO HAVE IT LAST IN THE STACK 
-        // LockStack.push              (ThisNextRelease);
+        // BUT I PREFER TO PUSH IT A CREATION AS IT IS CREATED IN 
+        // LockStack.push              (ThisNextRelease); _acquire FUNCTION
         return ThisNextRelease;    // RETURN THE .then() RESULT PROMISE  = AcquireNextLock(ThisName).then( (parm) => This release)
         // This release =  await this.AcquireNextLock(ThisName); 
       });
@@ -150,7 +163,6 @@ class Mutex {
     // IT IS YOUR RESPONSIBILITY TO SET THE ThisUnlockFnc.State to 'fulfilled'
   }
 }
-
 // /*
 const TheMutex                  = new Mutex();
 var TestDelay                   = 1000;
@@ -159,16 +171,20 @@ async function Executor (ThisName, ThisLock){
   await WaitDelay(TestDelay);
   return ThisName + " Succeeded";
 }
+const WaitDelay = ThisDelay => new Promise(resolve => {
+  setTimeout(resolve, ThisDelay);
+});
 // AFTER TEST
 setTimeout (() => {
-  TheMutex.ReportStatus();
-  // TheMutex.Execute        ("E", Executor);
-}, 5 * TestDelay);
+  // TheMutex.ReportStatus();
+  TheMutex.Execute        ("E", Executor);
+}, 1.5 * TestDelay);
 
 TheMutex.Execute        ("A", Executor);
 TheMutex.AwaitExecute   ("B", Executor);
 TheMutex.AwaitExecute   ("C", Executor);
 TheMutex.Execute        ("D", Executor);
+
 
 // In this release. 
 // 1. Added IsStillLocked(). that check for the last _lock to be fully fulfilled
@@ -178,5 +194,8 @@ TheMutex.Execute        ("D", Executor);
 // 5. Fixed issue between Execute and AwaitExecute 
 // 6. Made _acquire private
 // 7. Added an AfterTest Report
+
+// Avalaible on CodePen
+// https://codepen.io/dcwizard/pen/MWVpvOL
 
 // */
